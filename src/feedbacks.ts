@@ -1,6 +1,7 @@
 import { combineRgb, type CompanionAdvancedFeedbackResult } from '@companion-module/base'
 import type ModuleInstance from './main.js'
-import { blend, contrastText, itemStyle, warnColor, warnLevel, NEUTRAL_BG } from './colors.js'
+import { blend, contrastText, itemStyle, warnColor, warnLevel, NEUTRAL_BG, PAUSED_BG, PLAYING_BG } from './colors.js'
+import { parseIndexPath } from './liveplay.js'
 
 export type FeedbacksSchema = {
 	connected: { type: 'boolean'; options: Record<string, never> }
@@ -20,6 +21,10 @@ export type FeedbacksSchema = {
 	playing_color: { type: 'advanced'; options: { idle: number; flash: boolean } }
 	cart_color: { type: 'advanced'; options: { slot: number; idle: number } }
 	item_color: { type: 'advanced'; options: { uuid: string; idle: number } }
+	cue_button: {
+		type: 'advanced'
+		options: { cue: string; idle: number; playing: number; paused: number; show_name: boolean }
+	}
 }
 
 const UUID_TOOLTIP = 'The item UUID from the LivePlay project.'
@@ -273,6 +278,45 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 				const color = uuid ? self.state.itemColor(uuid) : ''
 				if (!color) return { bgcolor: feedback.options.idle, color: contrastText(feedback.options.idle) }
 				return colorOf(color, feedback.options.idle, self.state.isAudible(uuid) ? 1 : 0.45)
+			},
+		},
+		// One feedback that does a whole cue button — name, color and play
+		// state — from a single value, so the manual presets can point it and
+		// their action at the same local variable and stay in step.
+		cue_button: {
+			name: 'Cue button (name, color and play state)',
+			description:
+				'Shows a cue’s name in its own color (dimmed while idle), with a fill while it plays or is paused. Takes a UUID or an index path, including variables such as $(local:index).',
+			type: 'advanced',
+			options: [
+				{
+					id: 'cue',
+					type: 'textinput',
+					label: 'Cue (UUID or index path)',
+					tooltip: 'An item UUID, or a 0-based index path such as "2,35".',
+					default: '',
+					useVariables: true,
+				},
+				{ id: 'show_name', type: 'checkbox', label: 'Show the cue name as button text', default: true },
+				idleOption,
+				{ id: 'playing', type: 'colorpicker', label: 'Background while playing', default: PLAYING_BG },
+				{ id: 'paused', type: 'colorpicker', label: 'Background while paused', default: PAUSED_BG },
+			],
+			callback: (feedback) => {
+				const raw = feedback.options.cue.trim()
+				const index = parseIndexPath(raw)
+				const uuid = index ? self.state.uuidAtIndex(index) : raw
+				const { idle, playing, paused, show_name } = feedback.options
+
+				let style: CompanionAdvancedFeedbackResult
+				if (uuid && self.state.isAudible(uuid)) style = { bgcolor: playing, color: contrastText(playing) }
+				else if (uuid && self.state.isPaused(uuid)) style = { bgcolor: paused, color: contrastText(paused) }
+				else style = colorOf(uuid ? self.state.itemColor(uuid) : '', idle, 0.45)
+
+				// An unresolvable cue shows what was typed, so a wrong index or
+				// UUID reads as wrong rather than as a blank key.
+				if (show_name && raw) style.text = (uuid && self.state.itemName(uuid)) || raw
+				return style
 			},
 		},
 	})

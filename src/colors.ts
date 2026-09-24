@@ -15,6 +15,10 @@ export const BLACK = combineRgb(0, 0, 0)
 /** Neutral button background used when an item has no color of its own. */
 export const NEUTRAL_BG = combineRgb(28, 28, 30)
 
+/** Cue-button fills while a cue is sounding / held paused. */
+export const PLAYING_BG = combineRgb(0, 204, 0)
+export const PAUSED_BG = combineRgb(255, 153, 0)
+
 /**
  * End-of-cue warning colors and blink periods, matched to the client's
  * ActiveCueItem warning border so a Companion button and the on-screen card

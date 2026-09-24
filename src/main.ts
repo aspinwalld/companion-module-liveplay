@@ -41,7 +41,14 @@ const TICK_MS = 250
 /** Debounce for summary re-fetches triggered by doc_patch bursts. */
 const SUMMARY_DEBOUNCE_MS = 250
 /** Every color feedback that has to be re-evaluated when an item's color or identity changes. */
-const COLOR_FEEDBACKS = ['next_color', 'selected_color', 'playing_color', 'cart_color', 'item_color'] as const
+const COLOR_FEEDBACKS = [
+	'next_color',
+	'selected_color',
+	'playing_color',
+	'cart_color',
+	'item_color',
+	'cue_button',
+] as const
 
 export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 	config!: ModuleConfig // Setup in init()
@@ -366,6 +373,7 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 			'playing_color',
 			'cart_color',
 			'item_color',
+			'cue_button',
 		)
 		this.pushVariables()
 	}
@@ -383,6 +391,8 @@ export default class ModuleInstance extends InstanceBase<ModuleSchema> {
 			// Item set changed: re-publish variable definitions and force a full value push
 			this.lastVarValues = {}
 			this.updateVariableDefinitions()
+			// The Trigger Cue presets are generated one per catalog item
+			this.updatePresets()
 		}
 	}
 

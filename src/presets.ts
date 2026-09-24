@@ -4,6 +4,7 @@ import { combineRgb, type CompanionPresetDefinitions, type CompanionPresetSectio
 import { NEUTRAL_BG, WHITE } from './colors.js'
 import { strings } from './locale.js'
 import { CART_SLOTS } from './variables.js'
+import { CuePresets } from './presets-cues.js'
 
 /** Cart slots offered as ready-made presets — the full LivePlay cart wall. */
 const CART_PRESETS = CART_SLOTS
@@ -365,6 +366,9 @@ export function UpdatePresets(self: ModuleInstance): void {
 		],
 	}
 
+	const cues = CuePresets(self)
+	Object.assign(presets, cues.presets)
+
 	const structure: CompanionPresetSection[] = [
 		{
 			id: 'transport',
@@ -386,6 +390,7 @@ export function UpdatePresets(self: ModuleInstance): void {
 				},
 			],
 		},
+		cues.section,
 		{
 			id: 'selection',
 			name: 'Selection & Show Mode',

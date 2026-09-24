@@ -85,30 +85,37 @@ LivePlay operators read cues by color first and name second, so these take the c
 - **Playing item color (with end-of-cue flash)** — the most recently triggered on-air cue. With the flash enabled it cross-fades to yellow / orange / red at 30 s / 10 s / 5 s remaining, blinking at 2 s / 1 s / 0.5 s to match the client. Paused cues do not flash.
 - **Cart slot color** — the loaded cue's color, dimmed while idle and full while firing.
 - **Item color by UUID** — same treatment for any specific item.
+- **Cue button** — a whole cue button from one UUID _or_ index path (variables allowed): the cue's name as text, its color dimmed while idle, and a playing / paused fill (green / orange by default).
 
 Each takes a **Background when empty** color used when there is no item to draw from.
 
 ## Variables
 
-| Variable                                             | Description                                       |
-| ---------------------------------------------------- | ------------------------------------------------- |
-| `project_name`, `item_count`                         | Open project info                                 |
-| `current_item`, `current_item_uuid`, `current_color` | Most recently triggered on-air item               |
-| `current_state`                                      | Its transport state, in LivePlay's language       |
-| `elapsed`, `remaining`, `duration`                   | Current item times (`mm:ss`, updated 4 Hz)        |
-| `warn_level`                                         | `yellow` / `orange` / `red`, blank when clear     |
-| `next_name`, `next_uuid`, `next_color`, `next_index` | Effective Up Next (armed override or derived)     |
-| `next_source`                                        | `override` or `auto`                              |
+| Variable                                             | Description                                      |
+| ---------------------------------------------------- | ------------------------------------------------ |
+| `project_name`, `item_count`                         | Open project info                                |
+| `current_item`, `current_item_uuid`, `current_color` | Most recently triggered on-air item              |
+| `current_state`                                      | Its transport state, in LivePlay's language      |
+| `elapsed`, `remaining`, `duration`                   | Current item times (`mm:ss`, updated 4 Hz)       |
+| `warn_level`                                         | `yellow` / `orange` / `red`, blank when clear    |
+| `next_name`, `next_uuid`, `next_color`, `next_index` | Effective Up Next (armed override or derived)    |
+| `next_source`                                        | `override` or `auto`                             |
 | `selected_*`                                         | Name, UUID, color and index of the selected item |
-| `show_mode`, `locale`                                | Shared operator UI state                          |
-| `master_gain`, `limiter`                             | Master section state                              |
-| `lufs_m`, `lufs_s`                                   | Master K-weighted momentary/short-term loudness   |
-| `playing_count`, `server_version`                    | Misc status                                       |
-| `cart_<n>_name`, `cart_<n>_uuid`, `cart_<n>_color`   | Cart slots 1–16                                   |
-| `item_name_<uuid>`                                   | Name of a specific item, by UUID                  |
-| `item_name_at_<index>`                               | Name of a specific item, by index path            |
+| `show_mode`, `locale`                                | Shared operator UI state                         |
+| `master_gain`, `limiter`                             | Master section state                             |
+| `lufs_m`, `lufs_s`                                   | Master K-weighted momentary/short-term loudness  |
+| `playing_count`, `server_version`                    | Misc status                                      |
+| `cart_<n>_name`, `cart_<n>_uuid`, `cart_<n>_color`   | Cart slots 1–16                                  |
+| `item_name_<uuid>`                                   | Name of a specific item, by UUID                 |
+| `item_name_at_<index>`                               | Name of a specific item, by index path           |
 
 A pair of name variables is created for every item in the open project, so any button can show an item's name whether you address it by UUID or by position. For example `$(liveplay:item_name_at_0)` is the name of the first top-level item, `$(liveplay:item_name_at_1_11)` the name at index path `1,11`, and `$(liveplay:item_name_e8eaa079-...)` the name of that specific item wherever it moves. These update automatically when the playlist is edited. (Cart-only items get a UUID variable but no index variable.)
+
+## Trigger Cue presets
+
+The **Trigger Cue** preset section lists one button per cue in the open project, grouped by top-level LivePlay group (`2,35` appears under _Group 2_). Each button fires its cue by UUID, shows the cue's live name, sits in the cue's own color (dimmed) while idle, and turns **green** while playing and **orange** while paused. The list refreshes as the playlist is edited; renaming a cue relabels buttons already on a page too.
+
+The **Manual** group has two buttons you point at a cue yourself: _by index path_ and _by UUID_. Each keeps its target in a button **local variable** (`index` or `uuid`) that both the press action and the **Cue button** feedback read. Set that one value (e.g. `2,35`) and the button fires that cue, shows its name, and takes its color and play state. An index path that points at nothing shows the path itself on the button. An index button follows whatever currently sits at that position, so it retargets when the playlist is reordered.
 
 ## Button language
 
