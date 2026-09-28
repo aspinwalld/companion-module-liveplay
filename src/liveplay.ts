@@ -1,7 +1,30 @@
 /**
  * Types and helpers for the LivePlay external-control API (REST + WebSocket).
- * Protocol reference: LIVEPLAY_API_DEVDOC.md (LivePlay server >= 2.3.4).
+ * Protocol reference: the LivePlay Developer API Reference
+ * (docs-site/public/api/reference.json in the LivePlay repo), server >= 2.5.0.
  */
+
+/** Oldest LivePlay server this module talks to. */
+export const MIN_SERVER_VERSION = '2.5.0'
+
+/**
+ * True when `version` (e.g. "2.5.0", "2.5.1-beta") is at least `minimum`.
+ * Only the numeric major.minor.patch triple is compared; a pre-release
+ * suffix counts as that release, so a 2.5.0 build candidate is accepted.
+ */
+export function versionAtLeast(version: string, minimum: string): boolean {
+	const parse = (v: string): number[] => {
+		const m = /^\s*v?(\d+)(?:\.(\d+))?(?:\.(\d+))?/.exec(v)
+		return m ? [Number(m[1]), Number(m[2] ?? 0), Number(m[3] ?? 0)] : []
+	}
+	const a = parse(version)
+	const b = parse(minimum)
+	if (a.length === 0 || b.length === 0) return false
+	for (let i = 0; i < 3; i++) {
+		if (a[i] !== b[i]) return a[i] > b[i]
+	}
+	return true
+}
 
 /** Transport state integers as used in WebSocket messages. */
 export enum Transport {
@@ -62,19 +85,51 @@ export interface SummaryItemRef {
 	onAir?: boolean
 }
 
+/**
+ * A mixer bus as it appears in the summary's `buses[]` and in `buses_patched`.
+ * `buses_patched` carries stored definitions only, so the runtime fields
+ * (pfl, bound, masters, monoCheck) are optional here.
+ */
+export interface SummaryBus {
+	id: string
+	name?: string
+	/** Display color, CSS form. May be empty. */
+	color?: string
+	order?: number
+	width?: number
+	gainDb?: number
+	mute?: boolean
+	pfl?: boolean
+	bound?: boolean
+	/** Holds the Master role. Find Master/Preview by these flags, never by id. */
+	master?: boolean
+	/** Holds the Preview role. */
+	preview?: boolean
+	/** Preview mono audition — only reported on the Preview-role bus. */
+	monoCheck?: boolean
+}
+
 /** `GET /api/state/summary` response. */
 export interface StateSummary {
 	server?: { version?: string; meterBroadcastHz?: number }
 	project?: { name?: string; itemCount?: number; hasOpenProject?: boolean; audioLoading?: boolean }
 	playing?: SummaryPlayingItem[]
 	next?: SummaryItemRef | null
-	/** The shared playlist selection (LivePlay >= 2.4.0). */
+	/** The shared playlist selection. */
 	selection?: SummaryItemRef | null
-	/** Shared operator UI state (LivePlay >= 2.4.0). */
+	/** Shared operator UI state. */
 	ui?: { showMode?: boolean; locale?: string }
 	master?: { gainDb?: number; limiterEnabled?: boolean }
 	cart?: { slot: number; itemUuid: string; name?: string; color?: string; playing: boolean }[]
+	buses?: SummaryBus[]
 	preview?: { active?: boolean; itemUuid?: string }
+}
+
+/** `GET /api/auth/status` response (public). */
+export interface AuthStatus {
+	authRequired?: boolean
+	userCount?: number
+	setupRequired?: boolean
 }
 
 export interface WsCueMeter {
@@ -118,7 +173,6 @@ export interface WsPlaybackSnapshotMsg {
 	type: 'playback_snapshot'
 	cues?: WsSnapshotCue[]
 	next_item_uuid?: string
-	/** Shared operator UI state (LivePlay >= 2.4.0). */
 	selected_item_uuid?: string
 	show_mode?: boolean
 	locale?: string

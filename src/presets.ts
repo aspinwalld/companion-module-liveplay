@@ -3,8 +3,9 @@ import type ModuleInstance from './main.js'
 import { combineRgb, type CompanionPresetDefinitions, type CompanionPresetSection } from '@companion-module/base'
 import { NEUTRAL_BG, WHITE } from './colors.js'
 import { strings } from './locale.js'
-import { CART_SLOTS } from './variables.js'
+import { busVariableKey, CART_SLOTS } from './variables.js'
 import { CuePresets } from './presets-cues.js'
+import { gaugePreset, moduleGaugeSources, moduleVar } from './presets-gauge.js'
 
 /** Cart slots offered as ready-made presets — the full LivePlay cart wall. */
 const CART_PRESETS = CART_SLOTS
@@ -17,22 +18,20 @@ export function UpdatePresets(self: ModuleInstance): void {
 
 	const presets: CompanionPresetDefinitions<ModuleSchema> = {}
 
+	// Every button that fires or shows a cue is drawn the same way: a
+	// progress gauge in that cue's own color, dimmed while it waits and
+	// filling as it plays, with the label over it.
+
 	// GO carries the Up Next item's own color, so the operator can see what
 	// they're about to fire without reading the name — the same color-first
 	// read the playlist gives on screen.
-	presets['go'] = {
-		type: 'simple',
-		name: `GO (${t.upNext} name + color)`,
-		style: {
-			text: `${t.go}\\n$(liveplay:next_name)`,
-			size: 'auto',
-			color: WHITE,
-			bgcolor: combineRgb(0, 102, 0),
-			show_topbar: false,
-		},
+	presets['go'] = gaugePreset({
+		name: `GO (${t.upNext} name + color + progress)`,
+		keywords: ['go', 'next', 'progress', 'gauge'],
+		label: `${t.go}\\n${moduleVar('next_name')}`,
+		sources: moduleGaugeSources('next'),
 		steps: [{ down: [{ actionId: 'go', options: {} }], up: [] }],
-		feedbacks: [{ feedbackId: 'next_color', options: { idle: combineRgb(0, 51, 0) } }],
-	}
+	})
 
 	presets['next_display'] = {
 		type: 'simple',
@@ -50,34 +49,26 @@ export function UpdatePresets(self: ModuleInstance): void {
 
 	// The now-playing button shows the last-triggered cue in its own color,
 	// counting down, and flashes yellow/orange/red at 30/10/5 s exactly as the
-	// on-screen cue card does.
-	presets['now_playing'] = {
-		type: 'simple',
-		name: 'Now playing (color + countdown + end flash)',
-		style: {
-			text: '$(liveplay:current_item)\\n-$(liveplay:remaining)',
-			size: 'auto',
-			color: WHITE,
-			bgcolor: NEUTRAL_BG,
-			show_topbar: false,
+	// on-screen cue card does — the flash is blended into the gauge color.
+	const nowPlaying = {
+		label: `${moduleVar('current_item')}\\n-${moduleVar('remaining')}`,
+		sources: {
+			progress: moduleVar('current_progress'),
+			fill: moduleVar('current_flash_rgb'),
+			text: moduleVar('current_flash_text_rgb'),
 		},
+		keywords: ['now playing', 'current', 'progress', 'gauge'],
+	}
+	presets['now_playing'] = gaugePreset({
+		...nowPlaying,
+		name: 'Now playing (color + countdown + progress + end flash)',
 		steps: [],
-		feedbacks: [{ feedbackId: 'playing_color', options: { idle: NEUTRAL_BG, flash: true } }],
-	}
-
-	presets['now_playing_pause'] = {
-		type: 'simple',
+	})
+	presets['now_playing_pause'] = gaugePreset({
+		...nowPlaying,
 		name: `Now playing / ${t.pause}`,
-		style: {
-			text: '$(liveplay:current_item)\\n-$(liveplay:remaining)',
-			size: 'auto',
-			color: WHITE,
-			bgcolor: NEUTRAL_BG,
-			show_topbar: false,
-		},
 		steps: [{ down: [{ actionId: 'pause_toggle', options: {} }], up: [] }],
-		feedbacks: [{ feedbackId: 'playing_color', options: { idle: NEUTRAL_BG, flash: true } }],
-	}
+	})
 
 	presets['stop_all'] = {
 		type: 'simple',
@@ -182,19 +173,13 @@ export function UpdatePresets(self: ModuleInstance): void {
 		feedbacks: [{ feedbackId: 'selected_color', options: { idle: NEUTRAL_BG } }],
 	}
 
-	presets['play_selected'] = {
-		type: 'simple',
+	presets['play_selected'] = gaugePreset({
 		name: t.playSelected,
-		style: {
-			text: `${t.playSelected}\\n$(liveplay:selected_name)`,
-			size: 'auto',
-			color: WHITE,
-			bgcolor: NEUTRAL_BG,
-			show_topbar: false,
-		},
+		keywords: ['play', 'selected', 'progress', 'gauge'],
+		label: `${t.playSelected}\\n${moduleVar('selected_name')}`,
+		sources: moduleGaugeSources('selected'),
 		steps: [{ down: [{ actionId: 'play_selected', options: {} }], up: [] }],
-		feedbacks: [{ feedbackId: 'selected_color', options: { idle: NEUTRAL_BG } }],
-	}
+	})
 
 	presets['preview_selected'] = {
 		type: 'simple',
@@ -237,26 +222,106 @@ export function UpdatePresets(self: ModuleInstance): void {
 	}
 
 	// ---- Cart --------------------------------------------------------------
-	// Each pad shows the cue actually loaded into the slot, in its own color —
-	// dimmed while idle, full while firing. Empty slots fall back to the slot
-	// number so an unbuilt cart wall still reads as a cart wall.
+	// Each pad shows the cue loaded into the slot, in its own color, as a
+	// progress bar: dimmed while it waits, filling left to right in full color
+	// as it plays. Empty slots fall back to the slot number so an unbuilt cart
+	// wall still reads as a cart wall.
 	const cartPresetIds: string[] = []
 	for (let slot = 1; slot <= CART_PRESETS; slot++) {
 		const id = `cart_${slot}`
 		cartPresetIds.push(id)
-		presets[id] = {
-			type: 'simple',
+		presets[id] = gaugePreset({
 			name: `${t.slot} ${slot}`,
+			keywords: ['cart', 'progress', 'gauge'],
+			label: moduleVar(`cart_${slot}_name`),
+			sources: moduleGaugeSources(`cart_${slot}`),
+			steps: [{ down: [{ actionId: 'cart_play', options: { slot } }], up: [] }],
+		})
+	}
+
+	// ---- Mixer -------------------------------------------------------------
+	// A mute and a PFL key for every bus in the open show, re-published when
+	// buses are added, removed or renamed.
+	const busPresetIds: string[] = []
+	for (const bus of self.state.buses.values()) {
+		const key = busVariableKey(bus.id)
+		busPresetIds.push(`bus_mute_${key}`)
+		presets[`bus_mute_${key}`] = {
+			type: 'simple',
+			name: `${bus.name} mute`,
+			keywords: ['bus', 'mixer', 'mute'],
 			style: {
-				text: `$(liveplay:cart_${slot}_name)`,
+				text: `${bus.name}\\n$(liveplay:bus_${key}_gain) dB`,
 				size: 'auto',
 				color: WHITE,
 				bgcolor: NEUTRAL_BG,
 				show_topbar: false,
 			},
-			steps: [{ down: [{ actionId: 'cart_play', options: { slot } }], up: [] }],
-			feedbacks: [{ feedbackId: 'cart_color', options: { slot, idle: NEUTRAL_BG } }],
+			steps: [{ down: [{ actionId: 'bus_mute', options: { bus: bus.id, mode: 'toggle' } }], up: [] }],
+			feedbacks: [
+				{
+					feedbackId: 'bus_muted',
+					options: { bus: bus.id },
+					style: { bgcolor: combineRgb(204, 0, 0), color: WHITE },
+				},
+			],
 		}
+		if (bus.preview) continue // Preview cannot be PFL'd
+		busPresetIds.push(`bus_pfl_${key}`)
+		presets[`bus_pfl_${key}`] = {
+			type: 'simple',
+			name: `${bus.name} PFL`,
+			keywords: ['bus', 'mixer', 'pfl', 'listen'],
+			style: {
+				text: `PFL\\n${bus.name}`,
+				size: 'auto',
+				color: WHITE,
+				bgcolor: NEUTRAL_BG,
+				show_topbar: false,
+			},
+			steps: [{ down: [{ actionId: 'bus_pfl', options: { bus: bus.id, mode: 'toggle' } }], up: [] }],
+			feedbacks: [
+				{
+					feedbackId: 'bus_pfl',
+					options: { bus: bus.id },
+					style: { bgcolor: combineRgb(255, 193, 7), color: combineRgb(0, 0, 0) },
+				},
+			],
+		}
+	}
+
+	presets['pfl_clear'] = {
+		type: 'simple',
+		name: 'Clear all PFL',
+		style: {
+			text: 'PFL\\nCLEAR',
+			size: 'auto',
+			color: WHITE,
+			bgcolor: NEUTRAL_BG,
+			show_topbar: false,
+		},
+		steps: [{ down: [{ actionId: 'bus_pfl_clear', options: {} }], up: [] }],
+		feedbacks: [],
+	}
+
+	presets['preview_mono'] = {
+		type: 'simple',
+		name: 'Preview mono audition',
+		style: {
+			text: `${t.preview}\\nMONO`,
+			size: 'auto',
+			color: WHITE,
+			bgcolor: NEUTRAL_BG,
+			show_topbar: false,
+		},
+		steps: [{ down: [{ actionId: 'preview_mono', options: { mode: 'toggle' } }], up: [] }],
+		feedbacks: [
+			{
+				feedbackId: 'preview_mono',
+				options: {},
+				style: { bgcolor: combineRgb(255, 193, 7), color: combineRgb(0, 0, 0) },
+			},
+		],
 	}
 
 	presets['master_gain_up'] = {
@@ -425,9 +490,34 @@ export function UpdatePresets(self: ModuleInstance): void {
 				{
 					id: 'cart_slots',
 					name: 'Cart slots',
-					description: `Trigger cart slots 1-${CART_PRESETS}, showing each slot’s loaded cue name and color`,
+					description: `Trigger cart slots 1-${CART_PRESETS}, showing each slot’s loaded cue name and color, with a progress bar while it plays`,
 					type: 'simple',
 					presets: cartPresetIds,
+				},
+			],
+		},
+		{
+			id: 'mixer',
+			name: 'Mixer',
+			definitions: [
+				// Buses only exist once a show is open, so the group appears then.
+				...(busPresetIds.length > 0
+					? [
+							{
+								id: 'mixer_buses',
+								name: 'Buses',
+								description: 'Mute and pre-fade listen for each bus in the open show',
+								type: 'simple' as const,
+								presets: busPresetIds,
+							},
+						]
+					: []),
+				{
+					id: 'mixer_preview',
+					name: 'Preview',
+					description: 'Clear every PFL, and sum the Preview bus to mono',
+					type: 'simple',
+					presets: ['pfl_clear', 'preview_mono'],
 				},
 			],
 		},

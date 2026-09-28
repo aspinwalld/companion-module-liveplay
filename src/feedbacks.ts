@@ -1,7 +1,10 @@
 import { combineRgb, type CompanionAdvancedFeedbackResult } from '@companion-module/base'
 import type ModuleInstance from './main.js'
+import { busOption } from './actions.js'
 import { blend, contrastText, itemStyle, warnColor, warnLevel, NEUTRAL_BG, PAUSED_BG, PLAYING_BG } from './colors.js'
 import { parseIndexPath } from './liveplay.js'
+import { PROGRESS_MAX } from './state.js'
+import { itemGauge } from './variables.js'
 
 export type FeedbacksSchema = {
 	connected: { type: 'boolean'; options: Record<string, never> }
@@ -16,6 +19,9 @@ export type FeedbacksSchema = {
 	show_mode: { type: 'boolean'; options: Record<string, never> }
 	item_selected: { type: 'boolean'; options: { uuid: string } }
 	item_is_next: { type: 'boolean'; options: { uuid: string } }
+	bus_muted: { type: 'boolean'; options: { bus: string } }
+	bus_pfl: { type: 'boolean'; options: { bus: string } }
+	preview_mono: { type: 'boolean'; options: Record<string, never> }
 	next_color: { type: 'advanced'; options: { idle: number } }
 	selected_color: { type: 'advanced'; options: { idle: number } }
 	playing_color: { type: 'advanced'; options: { idle: number; flash: boolean } }
@@ -25,7 +31,14 @@ export type FeedbacksSchema = {
 		type: 'advanced'
 		options: { cue: string; idle: number; playing: number; paused: number; show_name: boolean }
 	}
+	cue_progress: { type: 'value'; options: { cue: string } }
+	cue_color_rgb: { type: 'value'; options: { cue: string } }
+	cue_text_rgb: { type: 'value'; options: { cue: string } }
+	cue_name: { type: 'value'; options: { cue: string } }
 }
+
+/** The value feedbacks behind every Trigger Cue gauge; main.ts re-checks them as playback moves. */
+export const CUE_GAUGE_FEEDBACKS = ['cue_progress', 'cue_color_rgb', 'cue_text_rgb', 'cue_name'] as const
 
 const UUID_TOOLTIP = 'The item UUID from the LivePlay project.'
 
@@ -36,6 +49,29 @@ const idleOption = {
 	label: 'Background when empty',
 	tooltip: 'Used when there is no item to take a color from.',
 	default: NEUTRAL_BG,
+}
+
+/**
+ * What the color feedbacks paint. Declared so Companion (API 2.1+) offers only
+ * the overrides that matter instead of the whole style.
+ */
+const COLOR_PROPERTIES: ['bgcolor', 'color'] = ['bgcolor', 'color']
+
+/** The "which cue" option shared by the cue feedbacks. */
+const cueOption = {
+	id: 'cue' as const,
+	type: 'textinput' as const,
+	label: 'Cue (UUID or index path)',
+	tooltip: 'An item UUID, or a 0-based index path such as "2,35". Variables such as $(local:index) work too.',
+	default: '',
+	useVariables: true,
+}
+
+/** A cue option (UUID or index path) as an item uuid; '' when it names nothing. */
+function resolveCue(self: ModuleInstance, raw: string): string {
+	const text = raw.trim()
+	const index = parseIndexPath(text)
+	return index ? self.state.uuidAtIndex(index) : text
 }
 
 /** Style for an item's authored color, or the idle fill when there is none. */
@@ -187,6 +223,36 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 				return uuid !== '' && self.state.next?.itemUuid === uuid
 			},
 		},
+		bus_muted: {
+			name: 'Bus is muted',
+			type: 'boolean',
+			defaultStyle: {
+				bgcolor: combineRgb(204, 0, 0),
+				color: combineRgb(255, 255, 255),
+			},
+			options: [busOption(self)],
+			callback: (feedback) => self.state.resolveBus(String(feedback.options.bus))?.mute ?? false,
+		},
+		bus_pfl: {
+			name: 'Bus PFL is on',
+			type: 'boolean',
+			defaultStyle: {
+				bgcolor: combineRgb(255, 193, 7),
+				color: combineRgb(0, 0, 0),
+			},
+			options: [busOption(self)],
+			callback: (feedback) => self.state.resolveBus(String(feedback.options.bus))?.pfl ?? false,
+		},
+		preview_mono: {
+			name: 'Preview mono audition is on',
+			type: 'boolean',
+			defaultStyle: {
+				bgcolor: combineRgb(255, 193, 7),
+				color: combineRgb(0, 0, 0),
+			},
+			options: [],
+			callback: () => self.state.previewMono,
+		},
 
 		// ---- Color mirrors ------------------------------------------------
 		// LivePlay identifies cues by color first and name second, so a button
@@ -197,6 +263,7 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 			name: 'Up Next item color',
 			description: 'Paints the button in the color of whatever is armed as Up Next. Use on a GO button.',
 			type: 'advanced',
+			affectedProperties: COLOR_PROPERTIES,
 			options: [idleOption],
 			callback: (feedback) => colorOf(self.state.next?.color, feedback.options.idle),
 		},
@@ -204,6 +271,7 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 			name: 'Selected item color',
 			description: 'Paints the button in the color of the item selected in the LivePlay playlist.',
 			type: 'advanced',
+			affectedProperties: COLOR_PROPERTIES,
 			options: [idleOption],
 			callback: (feedback) => colorOf(self.state.selection?.color, feedback.options.idle),
 		},
@@ -212,6 +280,7 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 			description:
 				'Paints the button in the color of the most recently triggered on-air item. Optionally flashes yellow / orange / red as the cue nears its end, matching LivePlay’s on-screen warning border (30 s / 10 s / 5 s).',
 			type: 'advanced',
+			affectedProperties: COLOR_PROPERTIES,
 			options: [
 				idleOption,
 				{
@@ -247,6 +316,7 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 			description:
 				'Paints the button in the color of the item loaded into a cart slot, at full brightness while it plays and dimmed while idle. Empty slots use the idle color.',
 			type: 'advanced',
+			affectedProperties: COLOR_PROPERTIES,
 			options: [
 				{
 					id: 'slot',
@@ -272,6 +342,7 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 			name: 'Item color by UUID',
 			description: 'Paints the button in a specific item’s color, brightening while it is on air.',
 			type: 'advanced',
+			affectedProperties: COLOR_PROPERTIES,
 			options: [{ id: 'uuid', type: 'textinput', label: 'Item UUID', tooltip: UUID_TOOLTIP, default: '' }, idleOption],
 			callback: (feedback) => {
 				const uuid = feedback.options.uuid.trim()
@@ -288,6 +359,7 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 			description:
 				'Shows a cue’s name in its own color (dimmed while idle), with a fill while it plays or is paused. Takes a UUID or an index path, including variables such as $(local:index).',
 			type: 'advanced',
+			affectedProperties: ['bgcolor', 'color', 'text'],
 			options: [
 				{
 					id: 'cue',
@@ -304,8 +376,7 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 			],
 			callback: (feedback) => {
 				const raw = feedback.options.cue.trim()
-				const index = parseIndexPath(raw)
-				const uuid = index ? self.state.uuidAtIndex(index) : raw
+				const uuid = resolveCue(self, raw)
 				const { idle, playing, paused, show_name } = feedback.options
 
 				let style: CompanionAdvancedFeedbackResult
@@ -317,6 +388,46 @@ export function UpdateFeedbacks(self: ModuleInstance): void {
 				// UUID reads as wrong rather than as a blank key.
 				if (show_name && raw) style.text = (uuid && self.state.itemName(uuid)) || raw
 				return style
+			},
+		},
+
+		// ---- Cue gauge values --------------------------------------------
+		// Value feedbacks that feed a button's local variables, which in turn
+		// drive its gauge and label. They take the cue as an option — a UUID,
+		// an index path, or a variable such as $(local:index) — so one button
+		// can be pointed anywhere, and a show with hundreds of cues doesn't need
+		// hundreds of extra global variables.
+		cue_progress: {
+			name: 'Cue progress (value, for gauges)',
+			description: `How far through a cue is, 0 (start) to ${PROGRESS_MAX} (end). 0 while it is not on air.`,
+			type: 'value',
+			options: [cueOption],
+			callback: (feedback) => itemGauge(self.state, resolveCue(self, feedback.options.cue)).progress,
+		},
+		cue_color_rgb: {
+			name: 'Cue color (value, for gauges)',
+			description: 'The cue’s own color as a packed RGB number — the form gauge colors need.',
+			type: 'value',
+			options: [cueOption],
+			callback: (feedback) => itemGauge(self.state, resolveCue(self, feedback.options.cue)).fill,
+		},
+		cue_text_rgb: {
+			name: 'Cue text color (value, for gauges)',
+			description: 'Black or white as a packed RGB number, whichever reads over the cue’s gauge.',
+			type: 'value',
+			options: [cueOption],
+			callback: (feedback) => itemGauge(self.state, resolveCue(self, feedback.options.cue)).text,
+		},
+		cue_name: {
+			name: 'Cue name (value)',
+			description:
+				'The cue’s current name. A cue that cannot be found shows what was typed, so a wrong target reads as wrong.',
+			type: 'value',
+			options: [cueOption],
+			callback: (feedback) => {
+				const raw = feedback.options.cue.trim()
+				const uuid = resolveCue(self, raw)
+				return (uuid && self.state.itemName(uuid)) || raw
 			},
 		},
 	})

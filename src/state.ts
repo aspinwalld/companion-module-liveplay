@@ -1,4 +1,20 @@
-import { Transport, transportFromString, type CatalogItem, type StateSummary } from './liveplay.js'
+import { Transport, transportFromString, type CatalogItem, type StateSummary, type SummaryBus } from './liveplay.js'
+
+/** Full-scale value of the progress variables that drive the gauge elements. */
+export const PROGRESS_MAX = 255
+
+/** A mixer bus as cached by the module. */
+export interface BusState {
+	id: string
+	name: string
+	color: string
+	order: number
+	gainDb: number
+	mute: boolean
+	pfl: boolean
+	master: boolean
+	preview: boolean
+}
 
 /** An on-air item as cached by the module (includes paused items). */
 export interface PlayingItem {
@@ -66,6 +82,17 @@ export class LivePlayState {
 
 	previewActive = false
 	previewItemUuid = ''
+	/** Mono audition on the Preview-role bus (session state, not stored in the show). */
+	previewMono = false
+
+	/** Project mixer buses, keyed by id. */
+	buses = new Map<string, BusState>()
+
+	/**
+	 * An inter-cue wait the sequencer announced (`advance_pending`). The server
+	 * sends no countdown or cancellation, so this simply expires at `dueAt`.
+	 */
+	advance: { fromUuid: string; dueAt: number } | null = null
 
 	/** K-weighted momentary / short-term loudness of master channel 0, dB. */
 	lufsM: number | null = null
@@ -86,7 +113,8 @@ export class LivePlayState {
 		return ++this.triggerSeqHigh
 	}
 
-	applySummary(s: StateSummary): void {
+	/** Returns true when the set of buses changed (see applyBuses). */
+	applySummary(s: StateSummary): boolean {
 		this.serverVersion = s.server?.version ?? this.serverVersion
 		this.projectName = s.project?.name ?? ''
 		this.hasOpenProject = s.project?.hasOpenProject ?? false
@@ -124,9 +152,6 @@ export class LivePlayState {
 				}
 			: null
 
-		// `selection` and `ui` arrived in LivePlay 2.4.0. Older servers omit
-		// them entirely; leaving the cached values untouched there would strand
-		// stale data, so an absent block clears rather than preserves.
 		this.selection = s.selection
 			? {
 					itemUuid: s.selection.itemUuid,
@@ -152,6 +177,79 @@ export class LivePlayState {
 
 		this.previewActive = s.preview?.active ?? false
 		this.previewItemUuid = s.preview?.itemUuid ?? ''
+
+		return this.applyBuses(s.buses ?? [], true)
+	}
+
+	/**
+	 * Replace the bus list. The summary carries live PFL / mono state, but a
+	 * `buses_patched` notification carries stored definitions only — so for
+	 * those, `withRuntime` is false and the live fields we already hold are kept.
+	 * Returns true when the set of buses (ids, names or order) changed, which
+	 * is what the action/feedback dropdowns and variable definitions hang off.
+	 */
+	applyBuses(list: SummaryBus[], withRuntime: boolean): boolean {
+		const before = this.busSignature()
+		const next = new Map<string, BusState>()
+		for (const b of list) {
+			if (!b.id) continue
+			const old = this.buses.get(b.id)
+			next.set(b.id, {
+				id: b.id,
+				name: b.name ?? old?.name ?? b.id,
+				color: b.color ?? old?.color ?? '',
+				order: b.order ?? old?.order ?? 0,
+				gainDb: b.gainDb ?? old?.gainDb ?? 0,
+				mute: b.mute ?? old?.mute ?? false,
+				pfl: withRuntime ? (b.pfl ?? false) : (old?.pfl ?? false),
+				master: b.master ?? old?.master ?? false,
+				preview: b.preview ?? old?.preview ?? false,
+			})
+			if (withRuntime && b.preview) this.previewMono = b.monoCheck ?? false
+		}
+		this.buses = new Map([...next.values()].sort((a, b) => a.order - b.order).map((b) => [b.id, b]))
+		return this.busSignature() !== before
+	}
+
+	private busSignature(): string {
+		return [...this.buses.values()]
+			.map((b) => `${b.id}\u0000${b.name}\u0000${b.master}\u0000${b.preview}`)
+			.join('\u0001')
+	}
+
+	/**
+	 * Resolve a bus reference from an action/feedback option. `@master` and
+	 * `@preview` follow the role, wherever it currently lives — the API says to
+	 * find those by flag, never by a fixed id.
+	 */
+	resolveBus(ref: string): BusState | null {
+		const key = ref.trim()
+		if (key === '@master') return [...this.buses.values()].find((b) => b.master) ?? null
+		if (key === '@preview') return [...this.buses.values()].find((b) => b.preview) ?? null
+		return this.buses.get(key) ?? null
+	}
+
+	/** Seconds until an announced inter-cue wait fires, or null when none is pending. */
+	advanceRemainingSec(now = Date.now()): number | null {
+		if (!this.advance) return null
+		const ms = this.advance.dueAt - now
+		if (ms <= 0) {
+			this.advance = null
+			return null
+		}
+		return ms / 1000
+	}
+
+	/**
+	 * How far through an on-air item is, scaled 0..PROGRESS_MAX. 0 when the item
+	 * is not on air or its duration is not known yet; paused items hold their
+	 * position.
+	 */
+	progressOf(itemUuid: string): number {
+		const p = this.playing.get(itemUuid)
+		if (!p || p.durationSec === null || !(p.durationSec > 0)) return 0
+		const fraction = Math.max(0, Math.min(1, p.elapsedSec / p.durationSec))
+		return Math.round(fraction * PROGRESS_MAX)
 	}
 
 	/** Replace the item catalog. Returns true when anything actually changed. */
@@ -224,6 +322,7 @@ export class LivePlayState {
 
 	clearPlayback(): void {
 		this.playing.clear()
+		this.advance = null
 		this.lufsM = null
 		this.lufsS = null
 		this.limiterEngaged = false
