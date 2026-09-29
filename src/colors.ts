@@ -124,6 +124,34 @@ export function blend(a: number, b: number, t: number): number {
 }
 
 /**
+ * Gauge track brightness, 0-100: how bright the unfilled part of a progress
+ * gauge is relative to its fill color. An idle pad is all track, so this is
+ * also the "loaded but idle" dimming of the cart wall.
+ */
+export const GAUGE_TRACK_AMOUNT = 60
+
+/** Fill for a loaded item that has no authored color — neutral, but visible against the track. */
+export const UNCOLORED_FILL = combineRgb(110, 110, 116)
+
+/**
+ * The packed RGB fill a progress gauge uses for an item. Gauge color stops
+ * must be numbers: Companion 5.0.0 reads them as numbers only, so a
+ * `#RRGGBB` string variable would draw black there.
+ */
+export function gaugeFill(color: string | undefined, loaded: boolean): number {
+	if (!loaded) return NEUTRAL_BG
+	return parseHexColor(color) ?? UNCOLORED_FILL
+}
+
+/**
+ * Legible text over a gauge. Idle, the button is all track (the fill dimmed to
+ * GAUGE_TRACK_AMOUNT); once the cue runs, the text is read against the fill.
+ */
+export function gaugeText(fill: number, active: boolean): number {
+	return contrastText(active ? fill : dim(fill, GAUGE_TRACK_AMOUNT / 100))
+}
+
+/**
  * The background/foreground pair for an item, from its authored color.
  * `intensity` dims the fill for idle states (the client tints inactive rows
  * rather than filling them), while the text color is always picked against

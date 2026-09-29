@@ -5,12 +5,8 @@ import {
 	type CompanionPresetGroup,
 	type CompanionPresetSection,
 } from '@companion-module/base'
-import { BLACK, NEUTRAL_BG, PAUSED_BG, PLAYING_BG, WHITE } from './colors.js'
 import { itemNameByIndexVariable, itemNameByUuidVariable } from './variables.js'
-
-function cueButtonOptions(cue: string) {
-	return { cue, show_name: true, idle: NEUTRAL_BG, playing: PLAYING_BG, paused: PAUSED_BG }
-}
+import { CUE_LOCAL_SOURCES, cueGaugeLocals, gaugePreset, localVar, moduleVar } from './presets-gauge.js'
 
 /**
  * "Trigger Cue" presets: one button per playable item in the open project,
@@ -31,21 +27,15 @@ export function CuePresets(self: ModuleInstance): {
 	const presets: CompanionPresetDefinitions<ModuleSchema> = {}
 
 	// Manual buttons for cues the generated list doesn't suit. Each keeps its
-	// target in one local variable that both the action and the cue_button
-	// feedback read, so editing that one value retargets the press, the name
-	// and the colors together.
-	presets['cue_by_index'] = {
-		type: 'simple',
+	// target in one local variable that both the action and the gauge's cue
+	// feedbacks read, so editing that one value retargets the press, the name,
+	// the color and the progress together.
+	presets['cue_by_index'] = gaugePreset({
 		name: 'Trigger cue by index path (set the "index" local variable)',
-		keywords: ['index', 'position'],
-		style: {
-			text: '$(local:index)',
-			size: 'auto',
-			color: WHITE,
-			bgcolor: NEUTRAL_BG,
-			show_topbar: false,
-		},
-		previewStyle: { text: 'Cue by index' },
+		keywords: ['index', 'position', 'progress', 'gauge'],
+		label: localVar('name'),
+		sources: CUE_LOCAL_SOURCES,
+		// `index` first: the gauge locals below read it.
 		localVariables: [
 			{
 				variableName: 'index',
@@ -53,23 +43,16 @@ export function CuePresets(self: ModuleInstance): {
 				headline: 'Index path to fire, 0-based, e.g. 2,35',
 				startupValue: '0',
 			},
+			...cueGaugeLocals(localVar('index')),
 		],
-		steps: [{ down: [{ actionId: 'play_index', options: { index: '$(local:index)' } }], up: [] }],
-		feedbacks: [{ feedbackId: 'cue_button', options: cueButtonOptions('$(local:index)') }],
-	}
+		steps: [{ down: [{ actionId: 'play_index', options: { index: localVar('index') } }], up: [] }],
+	})
 
-	presets['cue_by_uuid'] = {
-		type: 'simple',
+	presets['cue_by_uuid'] = gaugePreset({
 		name: 'Trigger cue by UUID (set the "uuid" local variable)',
-		keywords: ['uuid'],
-		style: {
-			text: 'Set cue UUID',
-			size: 'auto',
-			color: WHITE,
-			bgcolor: NEUTRAL_BG,
-			show_topbar: false,
-		},
-		previewStyle: { text: 'Cue by UUID' },
+		keywords: ['uuid', 'progress', 'gauge'],
+		label: localVar('name'),
+		sources: CUE_LOCAL_SOURCES,
 		localVariables: [
 			{
 				variableName: 'uuid',
@@ -77,10 +60,10 @@ export function CuePresets(self: ModuleInstance): {
 				headline: 'Item UUID from the LivePlay project',
 				startupValue: '',
 			},
+			...cueGaugeLocals(localVar('uuid')),
 		],
-		steps: [{ down: [{ actionId: 'play_item', options: { uuid: '$(local:uuid)' } }], up: [] }],
-		feedbacks: [{ feedbackId: 'cue_button', options: cueButtonOptions('$(local:uuid)') }],
-	}
+		steps: [{ down: [{ actionId: 'play_item', options: { uuid: localVar('uuid') } }], up: [] }],
+	})
 
 	// Bucket every playable item under the top-level entry it descends from:
 	// `2,35` lands under group 2, a bare `4` under the top level.
@@ -106,27 +89,16 @@ export function CuePresets(self: ModuleInstance): {
 
 		const id = `cue_${item.uuid}`
 		bucket.presets.push(id)
-		presets[id] = {
-			type: 'simple',
+		// The UUID is baked in, so the button keeps firing (and showing) the
+		// same cue when the playlist is reordered; the label follows renames.
+		presets[id] = gaugePreset({
 			name: `${path}  ${item.name}`,
 			keywords: [path, item.name],
-			style: {
-				text: `$(liveplay:${itemNameByUuidVariable(item.uuid)})`,
-				size: 'auto',
-				color: WHITE,
-				bgcolor: NEUTRAL_BG,
-				show_topbar: false,
-			},
-			previewStyle: { text: item.name || path },
+			label: moduleVar(itemNameByUuidVariable(item.uuid)),
+			sources: CUE_LOCAL_SOURCES,
+			localVariables: cueGaugeLocals(item.uuid),
 			steps: [{ down: [{ actionId: 'play_item', options: { uuid: item.uuid } }], up: [] }],
-			// Idle in the cue's own color (dimmed), then a hard green / orange
-			// while it sounds / is held, so play state reads from across a room.
-			feedbacks: [
-				{ feedbackId: 'item_color', options: { uuid: item.uuid, idle: NEUTRAL_BG } },
-				{ feedbackId: 'item_playing', options: { uuid: item.uuid }, style: { bgcolor: PLAYING_BG, color: BLACK } },
-				{ feedbackId: 'item_paused', options: { uuid: item.uuid }, style: { bgcolor: PAUSED_BG, color: BLACK } },
-			],
-		}
+		})
 	}
 
 	const definitions: CompanionPresetGroup[] = [
@@ -134,7 +106,7 @@ export function CuePresets(self: ModuleInstance): {
 			id: 'cues_template',
 			name: 'Manual',
 			description:
-				'Point a button at any cue by index path or UUID: set the button’s local variable and the name and colors follow',
+				'Point a button at any cue by index path or UUID: set the button’s local variable and the name, color and progress follow',
 			type: 'simple',
 			presets: ['cue_by_index', 'cue_by_uuid'],
 		},
@@ -149,7 +121,7 @@ export function CuePresets(self: ModuleInstance): {
 			id: 'cues',
 			name: 'Trigger Cue',
 			description:
-				'One button per cue in the open project, showing its live name and color, green while playing and orange while paused',
+				'One button per cue in the open project: its live name over a progress bar in its own color, dimmed while waiting and filling as it plays',
 			definitions,
 		},
 	}

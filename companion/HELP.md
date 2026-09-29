@@ -4,15 +4,22 @@ Controls LivePlay audio playout software over its REST + WebSocket external-cont
 
 ## Requirements
 
-- LivePlay server **v2.4.1 or later**.
-- The LivePlay API has **no authentication** — only use this module on a trusted network.
+- LivePlay server **v2.5.0 or later**. An older server is reported in the connection status and not used.
+- Companion **v5.0 or later**.
 
 ## Configuration
 
-| Setting              | Description                                       |
-| -------------------- | ------------------------------------------------- |
-| Server IP / hostname | The machine running the LivePlay server.          |
-| Port                 | The LivePlay REST/WebSocket port. Default `4480`. |
+| Setting              | Description                                                                                |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| Server IP / hostname | The machine running the LivePlay server.                                                   |
+| Port                 | The LivePlay REST/WebSocket port. Default `4480`.                                          |
+| API token            | Only needed when LivePlay requires a login. Paste an API token (starts with `lpk1_`) here. |
+
+### Authentication
+
+LivePlay can optionally require a login. When it does, have an administrator issue an **API token** from LivePlay's Users settings and paste it into **API token**. Use a token, not a user account: tokens don't expire, and revoking one only disconnects Companion. If the token is missing, wrong or revoked, the connection status says so.
+
+When LivePlay's login is off, its API is open to anyone on the network — only run it that way on a trusted network.
 
 ## Addressing items: UUID vs index path
 
@@ -38,7 +45,7 @@ Selection and Show Mode are held by the **server**, not by each client, so Compa
 **Transport**
 
 - **GO** — plays the armed Up Next item, or the target derived from the playing item's end behavior (same as LivePlay's GO button).
-- **Play / Stop / Pause / Resume / Toggle pause item** — by UUID.
+- **Play / Stop / Pause / Resume / Toggle pause item** — by UUID. Stop takes an optional fade in ms; blank uses the cue's own Stop fade.
 - **Pause / resume on-air items** — one button: resumes everything paused, otherwise pauses everything sounding.
 - **Play item by index path**
 - **Seek item** — jump to a position in seconds.
@@ -63,6 +70,15 @@ Selection and Show Mode are held by the **server**, not by each client, so Compa
 - **Preview item / Stop preview** — pre-listen without going to air.
 - **Load / Close project** — the path is resolved on the server machine.
 
+**Mixer**
+
+- **Bus fader: set / adjust** — absolute level, or a ± step from where the fader sits.
+- **Bus mute** / **Bus PFL** — toggle / on / off. PFL listens to a bus through the Preview bus.
+- **Clear all PFL**
+- **Preview mono audition** — sums the Preview bus to mono to check for phase problems.
+
+Every bus picker lists the buses in the open show, plus **Master** and **Preview** entries that follow whichever bus holds that role. PFL and Preview mono are session-only and are not saved in the show.
+
 ## Feedbacks
 
 **Boolean** (apply a style when true)
@@ -75,6 +91,7 @@ Selection and Show Mode are held by the **server**, not by each client, so Compa
 - **Preview active**
 - **Show Mode is on**
 - **Item is selected** / **Item is armed as Up Next**
+- **Bus is muted** / **Bus PFL is on** / **Preview mono audition is on**
 
 **Color mirrors** (paint the button from the item's own color)
 
@@ -89,33 +106,60 @@ LivePlay operators read cues by color first and name second, so these take the c
 
 Each takes a **Background when empty** color used when there is no item to draw from.
 
+**Cue values** (for gauges; see _Progress bars_ below)
+
+- **Cue progress**, **Cue color**, **Cue text color**, **Cue name** — value feedbacks that report one cue's progress (`0`–`255`), color and legible text color as numbers, and its name. They take a UUID, an index path, or a variable such as `$(local:index)`. Point a button **local variable** at one and use `$(local:…)` in a gauge.
+
 ## Variables
 
-| Variable                                             | Description                                      |
-| ---------------------------------------------------- | ------------------------------------------------ |
-| `project_name`, `item_count`                         | Open project info                                |
-| `current_item`, `current_item_uuid`, `current_color` | Most recently triggered on-air item              |
-| `current_state`                                      | Its transport state, in LivePlay's language      |
-| `elapsed`, `remaining`, `duration`                   | Current item times (`mm:ss`, updated 4 Hz)       |
-| `warn_level`                                         | `yellow` / `orange` / `red`, blank when clear    |
-| `next_name`, `next_uuid`, `next_color`, `next_index` | Effective Up Next (armed override or derived)    |
-| `next_source`                                        | `override` or `auto`                             |
-| `selected_*`                                         | Name, UUID, color and index of the selected item |
-| `show_mode`, `locale`                                | Shared operator UI state                         |
-| `master_gain`, `limiter`                             | Master section state                             |
-| `lufs_m`, `lufs_s`                                   | Master K-weighted momentary/short-term loudness  |
-| `playing_count`, `server_version`                    | Misc status                                      |
-| `cart_<n>_name`, `cart_<n>_uuid`, `cart_<n>_color`   | Cart slots 1–16                                  |
-| `item_name_<uuid>`                                   | Name of a specific item, by UUID                 |
-| `item_name_at_<index>`                               | Name of a specific item, by index path           |
+| Variable                                             | Description                                       |
+| ---------------------------------------------------- | ------------------------------------------------- |
+| `project_name`, `item_count`                         | Open project info                                 |
+| `current_item`, `current_item_uuid`, `current_color` | Most recently triggered on-air item               |
+| `current_state`                                      | Its transport state, in LivePlay's language       |
+| `elapsed`, `remaining`, `duration`                   | Current item times (`mm:ss`, updated 4 Hz)        |
+| `warn_level`                                         | `yellow` / `orange` / `red`, blank when clear     |
+| `next_name`, `next_uuid`, `next_color`, `next_index` | Effective Up Next (armed override or derived)     |
+| `next_source`                                        | `override` or `auto`                              |
+| `selected_*`                                         | Name, UUID, color and index of the selected item  |
+| `show_mode`, `locale`                                | Shared operator UI state                          |
+| `master_gain`, `limiter`                             | Master section state                              |
+| `lufs_m`, `lufs_s`                                   | Master K-weighted momentary/short-term loudness   |
+| `playing_count`, `server_version`                    | Misc status                                       |
+| `cart_<n>_name`, `cart_<n>_uuid`, `cart_<n>_color`   | Cart slots 1–16                                   |
+| `<x>_progress`                                       | Playback progress, `0` (start) to `255` (end)     |
+| `<x>_color_rgb`                                      | Item color as a number, for gauge color stops     |
+| `<x>_text_rgb`                                       | Black or white, whichever reads over that color   |
+| `current_flash_rgb`, `current_flash_text_rgb`        | Current item color with the end-of-cue flash      |
+| `bus_<id>_name`, `_gain`, `_mute`, `_pfl`            | Every mixer bus in the open show                  |
+| `preview_mono`                                       | Preview mono audition (On/Off)                    |
+| `advance_in`                                         | Seconds until a waiting cue fires (blank if none) |
+| `item_name_<uuid>`                                   | Name of a specific item, by UUID                  |
+| `item_name_at_<index>`                               | Name of a specific item, by index path            |
+
+For the gauge variables, `<x>` is `cart_<n>` (slots 1–16), `current` (Now Playing), `next` (Up Next) or `selected`. Progress is `0` whenever the item is not on air.
 
 A pair of name variables is created for every item in the open project, so any button can show an item's name whether you address it by UUID or by position. For example `$(liveplay:item_name_at_0)` is the name of the first top-level item, `$(liveplay:item_name_at_1_11)` the name at index path `1,11`, and `$(liveplay:item_name_e8eaa079-...)` the name of that specific item wherever it moves. These update automatically when the playlist is edited. (Cart-only items get a UUID variable but no index variable.)
 
 ## Trigger Cue presets
 
-The **Trigger Cue** preset section lists one button per cue in the open project, grouped by top-level LivePlay group (`2,35` appears under _Group 2_). Each button fires its cue by UUID, shows the cue's live name, sits in the cue's own color (dimmed) while idle, and turns **green** while playing and **orange** while paused. The list refreshes as the playlist is edited; renaming a cue relabels buttons already on a page too.
+The **Trigger Cue** preset section lists one button per cue in the open project, grouped by top-level LivePlay group (`2,35` appears under _Group 2_). Each button fires its cue by UUID and shows the cue's live name over a progress bar (see below). The list refreshes as the playlist is edited; renaming a cue relabels buttons already on a page too.
 
-The **Manual** group has two buttons you point at a cue yourself: _by index path_ and _by UUID_. Each keeps its target in a button **local variable** (`index` or `uuid`) that both the press action and the **Cue button** feedback read. Set that one value (e.g. `2,35`) and the button fires that cue, shows its name, and takes its color and play state. An index path that points at nothing shows the path itself on the button. An index button follows whatever currently sits at that position, so it retargets when the playlist is reordered.
+The **Manual** group has two buttons you point at a cue yourself: _by index path_ and _by UUID_. Each keeps its target in a button **local variable** (`index` or `uuid`) that both the press action and the button's cue values read. Set that one value (e.g. `2,35`) and the button fires that cue, shows its name, color and progress. An index path that points at nothing shows the path itself on the button. An index button follows whatever currently sits at that position, so it retargets when the playlist is reordered.
+
+## Progress bars
+
+Every preset that fires or shows a cue — the cart pads, **GO**, **Now playing**, **Play selected** and every **Trigger Cue** button — is a Companion 5 layered button drawn the same way: the whole button is a gauge in the cue's own color, dimmed while the cue waits, with a full-color bar sweeping left to right as it plays, under the name. GO shows the Up Next item, so its bar stays empty until that item is itself on air. Now playing also flashes yellow / orange / red near the end of the cue, blended into the bar's color.
+
+To build one yourself, add a **gauge** element (horizontal, full size) with:
+
+- **Value** `$(liveplay:cart_<n>_progress)`, **Minimum** `0`, **Maximum** `255`
+- one **color stop** at `0`, color set as an expression to `$(liveplay:cart_<n>_color_rgb)`
+- **Track style** dimmed, amount `60`
+
+then a **text** element on top with color `$(liveplay:cart_<n>_text_rgb)`. Swap `cart_<n>` for `current`, `next` or `selected`, or use the **Cue** value feedbacks through local variables for any other cue. Use the `_color_rgb` variables for gauges, not `_color`: gauge colors must be numbers, and Companion 5.0.0 draws a `#RRGGBB` text value as black.
+
+A cue that is a group shows no progress: LivePlay reports playback per audio cue, not per group.
 
 ## Button language
 
