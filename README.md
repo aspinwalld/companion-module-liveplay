@@ -1,3 +1,11 @@
+## **⚠️ Notice:** _This repository is archived and no longer maintained._
+
+LivePlay support is natively available in Companion via a Connection Module found here: [bitfocus/companion-module-liveplay-liveplay](https://github.com/bitfocus/companion-module-liveplay-liveplay). 
+
+The module is based on this one, and I still maintain it; feel free to discuss features and issues in the new Bitfocus repo.
+
+<br><br><hr><br><br>
+
 # companion-module-liveplay
 
 Control **LivePlay** audio playout software from a Stream Deck (or any other surface) using [Bitfocus Companion](https://bitfocus.io/companion).
